@@ -1,0 +1,275 @@
+using System;
+using System.Collections;
+using System.Runtime.CompilerServices;
+using TMPro;
+using UnityEngine;
+
+public class RainbowText_V4 : MonoBehaviour
+{
+    [SerializeField] private Gradient textGradient;
+    [SerializeField] private float gradientSpeed = .1f;
+    [SerializeField] private string stringToAffect = "";
+    [SerializeField] private bool caseInsensitive;
+
+    private TMP_Text m_TextComponent;
+    private float _totalTime;
+    private int startAt;
+    private int endAt;
+    
+    private int[] startAts;
+    private int[] endAts;
+    private bool moreThanOne;
+
+    private int currentTextSize;
+
+    void Awake()
+    {
+        m_TextComponent = GetComponent<TMP_Text>();
+    }
+
+
+    void Start()
+    {
+        currentTextSize = m_TextComponent.text.Length;
+        StartCoroutine(AnimateVertexColors());
+    }
+
+    private void Update()
+    {
+        if (currentTextSize != m_TextComponent.text.Length)
+        {
+            currentTextSize = m_TextComponent.text.Length;
+            
+            StopCoroutine(AnimateVertexColors());
+            ClearColor();
+            StartCoroutine(AnimateVertexColors());
+        }
+    }
+
+
+    //Checks whether the string that is our stringToAffect is in the text component, if so set the starting and ending points
+    private void CheckText()
+    {
+        string mainText = caseInsensitive ? m_TextComponent.text.ToLower() : m_TextComponent.text;
+        var checkString = caseInsensitive ? stringToAffect.ToLower() : stringToAffect;
+        string[] separator = {checkString};
+
+        
+        if (mainText.Contains(checkString))
+        {
+
+            int amount = HowManyOf(checkString, mainText);
+
+            if (amount > 1)
+            {
+                startAts = new int[amount];
+                endAts = new int[amount];
+                moreThanOne = true;
+                int lastPos = 0;
+
+                for (int i = 0; i < amount; i++)
+                {
+                    startAts[i] = mainText.IndexOf(checkString, lastPos);
+                    endAts[i] = startAts[i] + checkString.Length - 1;
+                    lastPos = endAts[i];
+                }
+
+            }
+            else
+            {
+                startAt = mainText.IndexOf(checkString);
+                endAt = startAt + checkString.Length-1;
+                moreThanOne = false;
+            }
+
+        }
+        else
+        {
+            //Error case
+            startAt = 0;
+            endAt = mainText.Length - 1;
+        }
+        
+    }
+
+    private bool InBetween(int checkValue, int start, int end)
+    {
+        return checkValue >= start && checkValue <= end;
+    }
+
+    private int HowManyOf(string stringToFind, string bigString)
+    {
+        //Find how many times a string is in a string
+        int count = 0;
+        int i = 0;
+        while ((i = bigString.IndexOf(stringToFind, i)) != -1)
+        {
+            i += stringToFind.Length;
+            count++;
+        }
+        return count;
+    }
+
+
+
+    IEnumerator AnimateVertexColors()
+    {
+        // Force the text object to update right away so we can have geometry to modify right from the start.
+        m_TextComponent.ForceMeshUpdate();
+        
+        CheckText();
+        
+        TMP_TextInfo textInfo = m_TextComponent.textInfo;
+        int currentCharacter = startAt;
+        
+        int[] currentCharacters = Array.Empty<int>();
+
+
+        Color32[] newVertexColors;
+        Color32 color0 = textGradient.Evaluate(0f);
+        Color32 color1 = m_TextComponent.color;
+        if (moreThanOne)
+        {
+            currentCharacters = new int[startAts.Length];
+            startAts.CopyTo(currentCharacters, 0);
+        }
+        else
+        {
+            //startAts.CopyTo(currentCharacters, 0);
+        }
+
+        while (enabled)
+        {
+            int characterCount = textInfo.characterCount;
+
+            try
+            {
+                // // If No Characters then just yield and wait for some text to be added
+                // if (characterCount == 0)
+                // {
+                //     new WaitForSeconds(0.25f);
+                //     continue;
+                // }
+
+                //For multiple instances
+                if (moreThanOne)
+                {
+                    for (int i = 0; i < startAts.Length; i++)
+                    {
+                       
+                        // Get the index of the material used by the current character.
+                        int materialIndex = textInfo.characterInfo[currentCharacters[i]].materialReferenceIndex;
+
+                        // Get the vertex colors of the mesh used by this text element (character or sprite).
+                        newVertexColors = textInfo.meshInfo[materialIndex].colors32;
+
+                        // Get the index of the first vertex used by this text element.
+                        int vertexIndex = textInfo.characterInfo[currentCharacters[i]].vertexIndex;
+
+                        // Only change the vertex color if the text element is visible.
+                        if (textInfo.characterInfo[currentCharacters[i]].isVisible && InBetween(currentCharacters[i], startAts[i], endAts[i]))
+                        {
+                            var offset = currentCharacters[i] / characterCount;
+                            color1 = textGradient.Evaluate((_totalTime + offset) % 1f);  
+                            _totalTime += Time.deltaTime;
+
+                            newVertexColors[vertexIndex + 0] = color0;
+                            newVertexColors[vertexIndex + 1] = color0;
+                            newVertexColors[vertexIndex + 2] = color1;
+                            newVertexColors[vertexIndex + 3] = color1;
+                
+                            color0 = color1;
+
+                            // New function which pushes (all) updated vertex data to the appropriate meshes when using either the Mesh Renderer or CanvasRenderer.
+                            m_TextComponent.UpdateVertexData(TMP_VertexDataUpdateFlags.Colors32);
+
+                            // This last process could be done to only update the vertex data that has changed as opposed to all of the vertex data but it would require extra steps and knowing what type of renderer is used.
+                            // These extra steps would be a performance optimization but it is unlikely that such optimization will be necessary.
+                        }
+
+                        currentCharacters[i] = (currentCharacters[i] + 1) % (endAts[i]+1);
+                        if (!InBetween(currentCharacters[i], startAts[i], endAts[i]))
+                            currentCharacters[i] = startAts[i];
+                        
+                    }
+                }
+                //For a single instance
+                else
+                {
+                    // Get the index of the material used by the current character.
+                    int materialIndex = textInfo.characterInfo[currentCharacter].materialReferenceIndex;
+
+                    // Get the vertex colors of the mesh used by this text element (character or sprite).
+                    newVertexColors = textInfo.meshInfo[materialIndex].colors32;
+
+                    // Get the index of the first vertex used by this text element.
+                    int vertexIndex = textInfo.characterInfo[currentCharacter].vertexIndex;
+
+                    // Only change the vertex color if the text element is visible.
+                    if (textInfo.characterInfo[currentCharacter].isVisible && InBetween(currentCharacter, startAt, endAt))
+                    {
+                        var offset = currentCharacter / characterCount;
+                        color1 = textGradient.Evaluate((_totalTime + offset) % 1f);  
+                        _totalTime += Time.deltaTime;
+
+                        newVertexColors[vertexIndex + 0] = color0;
+                        newVertexColors[vertexIndex + 1] = color0;
+                        newVertexColors[vertexIndex + 2] = color1;
+                        newVertexColors[vertexIndex + 3] = color1;
+                
+                        color0 = color1;
+
+                        // New function which pushes (all) updated vertex data to the appropriate meshes when using either the Mesh Renderer or CanvasRenderer.
+                        m_TextComponent.UpdateVertexData(TMP_VertexDataUpdateFlags.Colors32);
+
+                        // This last process could be done to only update the vertex data that has changed as opposed to all of the vertex data but it would require extra steps and knowing what type of renderer is used.
+                        // These extra steps would be a performance optimization but it is unlikely that such optimization will be necessary.
+                    }
+
+                    currentCharacter = (currentCharacter + 1) % (endAt+1);
+                    if (!InBetween(currentCharacter, startAt, endAt))
+                        currentCharacter = startAt;
+                }
+            }
+            catch (Exception e)
+            {
+                //Do nothing just ignore errors
+                yield break;
+            }
+            
+            yield return new WaitForSeconds(gradientSpeed);
+        }
+    }
+
+    private void ClearColor()
+    {
+        TMP_TextInfo textInfo = m_TextComponent.textInfo;
+        Color32[] newVertexColors;
+
+        for (int currentCharacter = 0; currentCharacter < m_TextComponent.text.Length; currentCharacter++)
+        {
+            // Get the index of the material used by the current character.
+            int materialIndex = textInfo.characterInfo[currentCharacter].materialReferenceIndex;
+
+            // Get the vertex colors of the mesh used by this text element (character or sprite).
+            newVertexColors = textInfo.meshInfo[materialIndex].colors32;
+
+            // Get the index of the first vertex used by this text element.
+            int vertexIndex = textInfo.characterInfo[currentCharacter].vertexIndex;
+
+            // Only change the vertex color if the text element is visible.
+            if (textInfo.characterInfo[currentCharacter].isVisible)
+            {
+                newVertexColors[vertexIndex + 0] = m_TextComponent.color;
+                newVertexColors[vertexIndex + 1] = m_TextComponent.color;
+                newVertexColors[vertexIndex + 2] = m_TextComponent.color;
+                newVertexColors[vertexIndex + 3] = m_TextComponent.color;
+
+
+                // New function which pushes (all) updated vertex data to the appropriate meshes when using either the Mesh Renderer or CanvasRenderer.
+                m_TextComponent.UpdateVertexData(TMP_VertexDataUpdateFlags.Colors32);
+
+            }
+        }
+    }
+}
